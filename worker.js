@@ -14,8 +14,10 @@ export default {
     const ADMIN_ID = parseInt(env.ADMIN_ID);
     const isAdmin = userId === ADMIN_ID;
 
-    const adminKb = [["📤 BROADCAST", "✅ POST WINNINGS"], ["🖼️ UPLOAD GAMES", "📊 BOT STATS"]];
+    // Track admin view mode using KV would be ideal, but for now we use simple toggle
+    const adminKb = [["📤 BROADCAST", "✅ POST WINNINGS"], ["🖼️ UPLOAD GAMES", "📊 BOT STATS"], ["🔄 SWITCH TO USER VIEW"]];
     const userKb = [["🆓 FREE TIPS", "💎 VIP SECTION"], ["📈 PREDICTION TOOLS", "👤 MY ACCOUNT"]];
+    const userKbAdmin = [["🆓 FREE TIPS", "💎 VIP SECTION"], ["📈 PREDICTION TOOLS", "👤 MY ACCOUNT"], ["🔙 BACK TO ADMIN"]];
 
     let reply = "";
     let keyboard = isAdmin ? adminKb : userKb;
@@ -24,6 +26,12 @@ export default {
       reply = isAdmin
         ? "Welcome Boss 👑\nVortexPulse Admin active. Wetin we dey do today?"
         : "VortexPulse AI 🚀\nAbeg wait, I dey scan market for safe games!";
+    } else if (text === "🔄 SWITCH TO USER VIEW" && isAdmin) {
+      reply = "Boss, you don switch to User View 👀\nTest everything wey users go see.";
+      keyboard = userKbAdmin;
+    } else if (text === "🔙 BACK TO ADMIN" && isAdmin) {
+      reply = "Welcome back Boss 👑";
+      keyboard = adminKb;
     } else if (text === "📤 BROADCAST" && isAdmin) {
       reply = "Boss, type /send followed by your message to broadcast to everybody.";
     } else if (text === "✅ POST WINNINGS" && isAdmin) {
@@ -45,6 +53,13 @@ export default {
       reply = "👤 Your Profile\nID: " + userId + "\nStatus: Free User";
     } else if (text === "⬅️ BACK") {
       reply = "Back to main menu 🏠";
+      keyboard = isAdmin ? userKbAdmin : userKb;
+    } else if (text === "⚽ Straight Win" || text === "🎯 Double Chance" || text === "🔥 Over 1.5" || text === "🎯 Correct Score" || text === "📐 Corners" || text === "💰 2 Odds") {
+      reply = "🧠 Analysing safe odds...\nAbeg hold on 3 minutes, my AI brain dey work! ⏳";
+    } else if (text === "💳 Subscribe VIP") {
+      reply = "💳 VIP Subscription\n\n💰 Weekly: ₦5,000\n\nPay to:\nBank: [Your Bank]\nAccount: [Your Account]\n\nAfter payment, send screenshot to Boss for approval.";
+    } else if (text === "🏆 VIP Games") {
+      reply = "🔒 VIP games are locked.\nSubscribe to unlock big big odds! 💎";
     } else {
       reply = "Abeg use the buttons below 👇";
     }
