@@ -51,39 +51,32 @@ export default {
       });
     }
 
-    // Call Gemini AI
-    async function askGemini(prompt, imageBase64) {
-      const url = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=" + env.GEMINI_KEY;
-      const parts = [{ text: prompt }];
-      if (imageBase64) {
-        parts.push({ inline_data: { mime_type: "image/jpeg", data: imageBase64 } });
-      }
+    // Call Groq AI
+    async function askGroq(prompt) {
       try {
-        const res = await fetch(url, {
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
           method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ contents: [{ parts: parts }] })
+          headers: {
+            "Content-Type": "application/json",
+            "Authorization": "Bearer " + env.GROQ_KEY
+          },
+          body: JSON.stringify({
+            model: "llama-3.3-70b-versatile",
+            messages: [
+              { role: "system", content: "You are VortexPulse AI, a smart and friendly Nigerian betting assistant. Reply in mostly polite English with a slight Naija vibe occasionally. Be brief, helpful, confident, and engaging. Keep responses under 100 words." },
+              { role: "user", content: prompt }
+            ],
+            temperature: 0.8
+          })
         });
         const data = await res.json();
-        return data.candidates[0].content.parts[0].text;
+        if (data.choices && data.choices[0]) {
+          return data.choices[0].message.content;
+        }
+        return "My brain is loading. Try again in a moment 🧠";
       } catch (e) {
-        return "Hmm, my brain dey overload small. Try again 🧠";
+        return "Connection issue. Please try again 🔄";
       }
-    }
-
-    // Get image as base64
-    async function getImageBase64(fileId) {
-      try {
-        const fileRes = await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/getFile?file_id=" + fileId);
-        const fileData = await fileRes.json();
-        const filePath = fileData.result.file_path;
-        const imgRes = await fetch("https://api.telegram.org/file/bot" + env.BOT_TOKEN + "/" + filePath);
-        const buffer = await imgRes.arrayBuffer();
-        const bytes = new Uint8Array(buffer);
-        let binary = '';
-        for (let i = 0; i < bytes.byteLength; i++) binary += String.fromCharCode(bytes[i]);
-        return btoa(binary);
-      } catch (e) { return null; }
     }
 
     async function isVip(uid) {
@@ -104,30 +97,22 @@ export default {
 
     // ============ PHOTO HANDLING ============
     if (hasPhoto) {
-      const fileId = msg.photo[msg.photo.length - 1].file_id;
-      
-      // ADMIN: Upload games
       if (isAdmin) {
         let adminMode = "";
         try { adminMode = await KV.get("adminmode:" + userId) || ""; } catch (e) {}
         
         if (adminMode === "upload_games") {
-          await sendMsg(chatId, "🧠 Scanning screenshot... Reading teams and odds. Please wait ⏳", adminKb);
-          const imgB64 = await getImageBase64(fileId);
-          const prompt = "You are a sports betting data extractor. Analyse this screenshot and extract: home team, away team, league/country, available markets and odds. Return in clean format. Be brief.";
-          const result = await askGemini(prompt, imgB64);
-          
-          // Save extracted games
+          // Save image file_id to KV (we'll process with OCR later)
+          const fileId = msg.photo[msg.photo.length - 1].file_id;
           const timestamp = Date.now();
-          await KV.put("game:" + timestamp, result, { expirationTtl: 86400 });
+          await KV.put("game:" + timestamp, fileId, { expirationTtl: 86400 });
           await KV.delete("adminmode:" + userId);
-          await sendMsg(chatId, "✅ Games saved to brain!\n\n📋 Extracted:\n" + result, adminKb);
+          await sendMsg(chatId, "✅ Screenshot saved to brain!\n📸 Game stored successfully.\n\nUpload more or click any button to continue.", adminKb);
           return new Response("OK");
         }
         return new Response("OK");
       }
       
-      // USER: Payment proof
       let inPaymentMode = false;
       try {
         const mode = await KV.get("paymode:" + userId);
@@ -159,8 +144,7 @@ export default {
     } catch (e) {}
 
     if (inChatMode && text !== "🚪 EXIT AI CHAT") {
-      const prompt = "You are VortexPulse AI, a smart and friendly Nigerian betting assistant. Reply in mostly polite English with a touch of Naija vibe. Be brief, helpful, and confident. User says: " + text;
-      const aiReply = await askGemini(prompt, null);
+      const aiReply = await askGroq(text);
       await sendMsg(chatId, "🧠 " + aiReply, chatExitKb);
       return new Response("OK");
     }
@@ -226,9 +210,15 @@ export default {
     else if (text === "✅ POST WINNINGS" && isAdmin) reply = "Send the winning screenshot now 🏆";
     else if (text === "🖼️ UPLOAD GAMES" && isAdmin) {
       await KV.put("adminmode:" + userId, "upload_games", { expirationTtl: 600 });
-      reply = "🧠 UPLOAD MODE ACTIVE\nDrop the screenshot of the games now. My AI brain will scan and save them.";
+      reply = "🧠 UPLOAD MODE ACTIVE\nDrop the screenshot of the games now. I will save them to my brain.";
     }
-    else if (text === "📊 BOT STATS" && isAdmin) reply = "📊 VortexPulse Stats:\n👥 Users: 1\n💎 VIPs: 0";
+    else if (text === "📊 BOT STATS" && isAdmin) {
+      try {
+        const vipList = await KV.list({ prefix: "vip:" });
+        const gameList = await KV.list({ prefix: "game:" });
+        reply = "📊 VortexPulse Stats:\n━━━━━━━━━━\n💎 Active VIPs: " + vipList.keys.length + "\n🎯 Games Stored: " + gameList.keys.length;
+      } catch (e) { reply = "📊 Stats unavailable."; }
+    }
     else if (text === "👥 MANAGE VIP" && isAdmin) reply = "Commands:\n/addvip [user_id] [days]\n/removevip [user_id]\n/viplist";
     else if (text === "💳 EDIT PAYMENT" && isAdmin) reply = "💳 Current Payment:\n" + paymentDetails + "\n\nUpdate with:\n/setpayment Bank: ...\nAccount: ...\nName: ...";
     else if (text === "💳 SUBSCRIBE VIP") {
