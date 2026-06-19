@@ -70,20 +70,41 @@ export default {
       } catch (e) { return "Connection issue. Please try again."; }
     }
 
-    async function readImage(fileId) {
+    // Groq Vision - reads images intelligently with AI
+    async function readImageWithAI(fileId) {
       try {
         const fileRes = await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/getFile?file_id=" + fileId);
         const fileData = await fileRes.json();
         const imageUrl = "https://api.telegram.org/file/bot" + env.BOT_TOKEN + "/" + fileData.result.file_path;
-        const formData = new FormData();
-        formData.append("url", imageUrl);
-        formData.append("apikey", env.OCR_KEY);
-        formData.append("language", "eng");
-        formData.append("isOverlayRequired", "false");
-        formData.append("OCREngine", "2");
-        const ocrRes = await fetch("https://api.ocr.space/parse/image", { method: "POST", body: formData });
-        const ocrData = await ocrRes.json();
-        if (ocrData.ParsedResults && ocrData.ParsedResults[0]) return ocrData.ParsedResults[0].ParsedText;
+        
+        // Download and convert to base64
+        const imgRes = await fetch(imageUrl);
+        const buffer = await imgRes.arrayBuffer();
+        const bytes = new Uint8Array(buffer);
+        let binary = '';
+        const chunkSize = 8192;
+        for (let i = 0; i < bytes.length; i += chunkSize) {
+          binary += String.fromCharCode.apply(null, bytes.slice(i, i + chunkSize));
+        }
+        const base64 = btoa(binary);
+        
+        const res = await fetch("https://api.groq.com/openai/v1/chat/completions", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.GROQ_KEY },
+          body: JSON.stringify({
+            model: "meta-llama/llama-4-scout-17b-16e-instruct",
+            messages: [{
+              role: "user",
+              content: [
+                { type: "text", text: "Extract ALL betting data from this screenshot. List every team match-up, league/country, and all visible odds for markets (1X2, Over/Under, BTTS, Correct Score, etc). Be thorough and accurate. Format clearly." },
+                { type: "image_url", image_url: { url: "data:image/jpeg;base64," + base64 } }
+              ]
+            }],
+            temperature: 0.2
+          })
+        });
+        const data = await res.json();
+        if (data.choices && data.choices[0]) return data.choices[0].message.content;
         return null;
       } catch (e) { return null; }
     }
@@ -104,7 +125,6 @@ export default {
 
     const userIsVip = isAdmin ? true : await isVip(userId);
 
-    // ============ PHOTO HANDLING ============
     if (hasPhoto) {
       if (isAdmin) {
         let adminMode = "";
@@ -112,16 +132,16 @@ export default {
         
         if (adminMode === "upload_free" || adminMode === "upload_vip") {
           const tier = adminMode === "upload_free" ? "free" : "vip";
-          await sendMsg(chatId, "Scanning screenshot with OCR... Please wait.", adminKb);
+          await sendMsg(chatId, "Scanning screenshot with AI Vision... Please wait.", adminKb);
           const fileId = msg.photo[msg.photo.length - 1].file_id;
-          const extractedText = await readImage(fileId);
+          const extractedText = await readImageWithAI(fileId);
           if (extractedText) {
             const timestamp = Date.now();
             await KV.put("game_" + tier + ":" + timestamp, extractedText, { expirationTtl: 86400 });
-            const preview = extractedText.substring(0, 300);
-            await sendMsg(chatId, "✔️ " + tier.toUpperCase() + " game saved.\n\nExtracted preview:\n" + preview + "...\n\nUpload more or tap menu.", adminKb);
+            const preview = extractedText.substring(0, 500);
+            await sendMsg(chatId, "✔️ " + tier.toUpperCase() + " game saved.\n\nExtracted:\n" + preview, adminKb);
           } else {
-            await sendMsg(chatId, "✖️ Could not read the screenshot. Try a clearer image.", adminKb);
+            await sendMsg(chatId, "✖️ Could not analyse the screenshot. Try again.", adminKb);
           }
           return new Response("OK");
         }
@@ -223,11 +243,11 @@ export default {
     else if (text === "◀️ BACK TO ADMIN" && isAdmin) { reply = "Welcome back, Boss."; keyboard = adminKb; }
     else if (text === "▫️ UPLOAD FREE GAMES" && isAdmin) {
       await KV.put("adminmode:" + userId, "upload_free", { expirationTtl: 600 });
-      reply = "FREE GAMES UPLOAD MODE\nDrop screenshots now. I will scan and save them as FREE tier games.";
+      reply = "FREE GAMES UPLOAD MODE\nDrop screenshots now. AI Vision will scan and save them.";
     }
     else if (text === "◾ UPLOAD VIP GAMES" && isAdmin) {
       await KV.put("adminmode:" + userId, "upload_vip", { expirationTtl: 600 });
-      reply = "VIP GAMES UPLOAD MODE\nDrop screenshots now. I will scan and save them as VIP tier games.";
+      reply = "VIP GAMES UPLOAD MODE\nDrop screenshots now. AI Vision will scan and save them.";
     }
     else if (text === "▪️ BROADCAST" && isAdmin) reply = "Type /send followed by your message.";
     else if (text === "✔️ POST WINNINGS" && isAdmin) reply = "Send the winning screenshot.";
