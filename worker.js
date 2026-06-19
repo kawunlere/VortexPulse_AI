@@ -54,11 +54,10 @@ export default {
       ["🎲 Random Picker", "📊 Stats Insight"],
       ["🔮 AI Prediction", "🏟️ League Picker"],
       ["🌍 Country Games", "⏰ Live Matches"],
-      ["⬅️ BACK"]
+      ["💳 Subscribe VIP", "⬅️ BACK"]
     ];
 
     let reply = "";
-    // Default keyboard stays based on context
     let keyboard = isAdmin ? adminKb : userKb;
 
     // ============ START ============
@@ -93,7 +92,11 @@ export default {
       reply = "💎 VIP ZONE 💎\nPremium markets with big odds. Pick one below 👇";
       keyboard = vipKb;
     } else if (text === "📈 PREDICTION TOOLS") {
-      reply = "📈 PREDICTION TOOLS\nAI-powered tools below 👇";
+      if (isAdmin) {
+        reply = "📈 PREDICTION TOOLS (Admin Access 👑)\nAI-powered tools below 👇";
+      } else {
+        reply = "🔒 PREDICTION TOOLS (VIP ONLY)\nThese advanced AI tools are locked. Subscribe to unlock 👇";
+      }
       keyboard = toolsKb;
     } else if (text === "🧠 AI CHAT") {
       reply = "🧠 AI CHAT ACTIVATED\nFeel free to chat with me, my Oga! Ask anything about betting, football, or life. You have 3 minutes 💬\n\n(Coming soon: Full AI brain)";
@@ -102,7 +105,7 @@ export default {
       const vip = isAdmin ? "✅ Lifetime Access" : "❌ Not Active";
       reply = "👤 Your Profile\n━━━━━━━━━━\nID: " + userId + "\nStatus: " + status + "\nVIP: " + vip + "\nJoined: Today";
     } else if (text === "ℹ️ HELP") {
-      reply = "ℹ️ HELP CENTER\n\n🆓 Free Tips - Simple safe games\n💎 VIP - Big odds (premium)\n📈 Tools - AI predictions\n🧠 AI Chat - Talk to bot\n\nNeed help? Contact the Boss.";
+      reply = "ℹ️ HELP CENTER\n\n🆓 Free Tips - Simple safe games\n💎 VIP - Big odds (premium)\n📈 Tools - AI predictions (VIP)\n🧠 AI Chat - Talk to bot\n\nNeed help? Contact the Boss.";
     }
     // ============ FREE TIPS ============
     else if (text === "⚽ Straight Win" || text === "🎯 Double Chance" || text === "🔥 Over 1.5" || text === "💧 Under 3.5" || text === "🤝 Draw No Bet" || text === "🎪 BTTS") {
@@ -117,22 +120,19 @@ export default {
         reply = "🔒 VIP ONLY 🔒\n" + text + " is locked.\n\nSubscribe to unlock premium odds! 💎\nTap 💳 Subscribe VIP below.";
       }
       keyboard = vipKb;
-    } else if (text === "💳 Subscribe VIP") {
-      reply = "💳 VIP SUBSCRIPTION\n━━━━━━━━━━\n💰 Weekly: ₦5,000\n💎 Monthly: ₦15,000\n\n💳 Pay to:\nBank: [Your Bank]\nAccount: [Your Account]\nName: [Your Name]\n\n📸 After payment, send screenshot to Boss for approval.";
     }
-    // ============ TOOLS ============
-    else if (text === "🎲 Random Picker") {
-      reply = "🎲 Random Game Picker\n🧠 Generating random safe pick...\n⏳ Please wait 3 minutes for the result.";
-    } else if (text === "📊 Stats Insight") {
-      reply = "📊 Stats Insight\n🧠 Analysing head-to-head data...\n⏳ Please wait 3 minutes.";
-    } else if (text === "🔮 AI Prediction") {
-      reply = "🔮 AI Prediction\n🧠 Deep AI analysis running...\n⏳ Please wait 3 minutes for your prediction.";
-    } else if (text === "🏟️ League Picker") {
-      reply = "🏟️ Choose your league:\n• Premier League\n• La Liga\n• Serie A\n• Bundesliga\n• Champions League\n\nType the league name to proceed.";
-    } else if (text === "🌍 Country Games") {
-      reply = "🌍 Choose country:\n• England 🏴\n• Spain 🇪🇸\n• Italy 🇮🇹\n• Germany 🇩🇪\n• Nigeria 🇳🇬\n\nType the country name to proceed.";
-    } else if (text === "⏰ Live Matches") {
-      reply = "⏰ Live Matches\n🧠 Scanning live games now...\n⏳ Please wait 3 minutes.";
+    // ============ TOOLS (VIP LOCKED) ============
+    else if (text === "🎲 Random Picker" || text === "📊 Stats Insight" || text === "🔮 AI Prediction" || text === "🏟️ League Picker" || text === "🌍 Country Games" || text === "⏰ Live Matches") {
+      if (isAdmin) {
+        reply = "👑 ADMIN ACCESS GRANTED\n🧠 Running " + text + "...\n⏳ Please wait 3 minutes for the result.";
+      } else {
+        reply = "🔒 VIP TOOL LOCKED 🔒\n" + text + " is a premium AI tool.\n\nSubscribe to unlock! 💎\nTap 💳 Subscribe VIP below.";
+      }
+      keyboard = toolsKb;
+    }
+    // ============ SUBSCRIPTION ============
+    else if (text === "💳 Subscribe VIP") {
+      reply = "💳 VIP SUBSCRIPTION\n━━━━━━━━━━\n💰 Weekly: ₦5,000\n💎 Monthly: ₦15,000\n\nUnlocks:\n✅ All VIP betting markets\n✅ All AI prediction tools\n✅ Daily premium picks\n\n💳 Pay to:\nBank: [Your Bank]\nAccount: [Your Account]\nName: [Your Name]\n\n📸 After payment, send screenshot to Boss for approval.";
     }
     // ============ BACK ============
     else if (text === "⬅️ BACK") {
@@ -141,7 +141,6 @@ export default {
     }
     else {
       reply = "Please use the buttons below 👇";
-      // Keep current context, don't force admin
       keyboard = isAdmin ? userKbAdmin : userKb;
     }
 
