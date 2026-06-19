@@ -61,7 +61,6 @@ export default {
       ["⬅️ BACK"]
     ];
 
-    // Helper function to send message
     async function sendMsg(cid, txt, kb) {
       return fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
         method: "POST",
@@ -74,12 +73,22 @@ export default {
       });
     }
 
-    // Get payment details
+    // Check if user is VIP
+    async function isVip(uid) {
+      try {
+        const expiry = await KV.get("vip:" + uid);
+        if (!expiry) return false;
+        return parseInt(expiry) > Date.now();
+      } catch (e) { return false; }
+    }
+
     let paymentDetails = "Bank: [Not Set]\nAccount: [Not Set]\nName: [Not Set]";
     try {
       const stored = await KV.get("payment_details");
       if (stored) paymentDetails = stored;
     } catch (e) {}
+
+    const userIsVip = isAdmin ? true : await isVip(userId);
 
     // ============ PHOTO HANDLING ============
     if (hasPhoto) {
@@ -101,7 +110,7 @@ export default {
           body: JSON.stringify({ chat_id: ADMIN_ID, from_chat_id: chatId, message_id: msg.message_id })
         });
 
-        await sendMsg(ADMIN_ID, "💰 New payment proof from User ID: " + userId + "\nUse /addvip " + userId + " to approve.", adminKb);
+        await sendMsg(ADMIN_ID, "💰 New payment proof from User ID: " + userId + "\n\nApprove with:\n/addvip " + userId + " 7  (for weekly)\n/addvip " + userId + " 30  (for monthly)", adminKb);
       } else {
         await sendMsg(chatId, "❌ I only accept screenshots when you're subscribing.\nPlease use the buttons below 👇", userKb);
       }
@@ -110,16 +119,58 @@ export default {
 
     if (!text) return new Response("OK");
 
+    // ============ ADMIN COMMANDS ============
+    if (isAdmin) {
+      if (text.startsWith("/setpayment ")) {
+        const newDetails = text.replace("/setpayment ", "");
+        await KV.put("payment_details", newDetails);
+        await sendMsg(chatId, "✅ Payment details updated:\n\n" + newDetails, adminKb);
+        return new Response("OK");
+      }
+      
+      if (text.startsWith("/addvip ")) {
+        const parts = text.split(" ");
+        const targetId = parts[1];
+        const days = parts[2] ? parseInt(parts[2]) : 7;
+        const expiry = Date.now() + (days * 24 * 60 * 60 * 1000);
+        await KV.put("vip:" + targetId, expiry.toString(), { expirationTtl: days * 24 * 60 * 60 });
+        await sendMsg(chatId, "✅ User " + targetId + " is now VIP for " + days + " days.", adminKb);
+        // Notify user
+        await sendMsg(parseInt(targetId), "🎉 Congratulations! Your VIP access is now ACTIVE for " + days + " days 💎\n\nEnjoy all premium features!", userKb);
+        return new Response("OK");
+      }
+      
+      if (text.startsWith("/removevip ")) {
+        const targetId = text.replace("/removevip ", "").trim();
+        await KV.delete("vip:" + targetId);
+        await sendMsg(chatId, "✅ VIP removed for user " + targetId, adminKb);
+        return new Response("OK");
+      }
+      
+      if (text === "/viplist") {
+        try {
+          const list = await KV.list({ prefix: "vip:" });
+          let result = "💎 VIP LIST:\n━━━━━━━━━━\n";
+          if (list.keys.length === 0) {
+            result += "No active VIPs yet.";
+          } else {
+            for (const key of list.keys) {
+              const uid = key.name.replace("vip:", "");
+              const expiry = await KV.get(key.name);
+              const daysLeft = Math.ceil((parseInt(expiry) - Date.now()) / (24 * 60 * 60 * 1000));
+              result += "👤 " + uid + " - " + daysLeft + " days left\n";
+            }
+          }
+          await sendMsg(chatId, result, adminKb);
+        } catch (e) {
+          await sendMsg(chatId, "Error fetching list.", adminKb);
+        }
+        return new Response("OK");
+      }
+    }
+
     let reply = "";
     let keyboard = isAdmin ? adminKb : userKb;
-
-    // ADMIN COMMAND
-    if (text.startsWith("/setpayment ") && isAdmin) {
-      const newDetails = text.replace("/setpayment ", "");
-      await KV.put("payment_details", newDetails);
-      await sendMsg(chatId, "✅ Payment details updated:\n\n" + newDetails, adminKb);
-      return new Response("OK");
-    }
 
     if (text === "/start") {
       reply = isAdmin
@@ -127,33 +178,37 @@ export default {
         : "Welcome to VortexPulse AI 🚀\nI analyse the markets to find the safest games for you. Please select an option below 👇";
     }
     else if (text === "🔄 SWITCH TO USER VIEW" && isAdmin) {
-      reply = "Switched to User View 👀\nYou can now test all user features. Tap '🔙 BACK TO ADMIN' when done.";
+      reply = "Switched to User View 👀\nTap '🔙 BACK TO ADMIN' when done.";
       keyboard = userKbAdmin;
     } else if (text === "🔙 BACK TO ADMIN" && isAdmin) {
       reply = "Welcome back, Boss 👑";
       keyboard = adminKb;
     } else if (text === "📤 BROADCAST" && isAdmin) {
-      reply = "Boss, type /send followed by your message to broadcast to everybody.";
+      reply = "Boss, type /send followed by your message to broadcast.";
     } else if (text === "✅ POST WINNINGS" && isAdmin) {
-      reply = "Send the winning screenshot now. I'll broadcast it instantly 🏆";
+      reply = "Send the winning screenshot now 🏆";
     } else if (text === "🖼️ UPLOAD GAMES" && isAdmin) {
-      reply = "Drop the screenshot of the games, Boss. My AI brain is ready to scan 🧠";
+      reply = "Drop the games screenshot, Boss 🧠";
     } else if (text === "📊 BOT STATS" && isAdmin) {
       reply = "📊 VortexPulse Stats:\n👥 Users: 1\n💎 VIPs: 0\n🎯 Games: 0";
     } else if (text === "👥 MANAGE VIP" && isAdmin) {
-      reply = "Use these commands:\n/addvip [user_id]\n/removevip [user_id]\n/viplist";
+      reply = "Commands:\n/addvip [user_id] [days]\n/removevip [user_id]\n/viplist\n\nExample: /addvip 6514296578 7";
     } else if (text === "💳 EDIT PAYMENT" && isAdmin) {
-      reply = "💳 Edit Payment Details\n\nCurrent:\n" + paymentDetails + "\n\nTo update, send:\n/setpayment Bank: GTB\nAccount: 0123456789\nName: Your Name";
+      reply = "💳 Current Payment Details:\n" + paymentDetails + "\n\nTo update, send:\n/setpayment Bank: GTB\nAccount: 0123456789\nName: Your Name";
     }
     else if (text === "💳 SUBSCRIBE VIP") {
-      await KV.put("paymode:" + userId, "yes", { expirationTtl: 1800 });
-      reply = "💳 VIP SUBSCRIPTION\n━━━━━━━━━━\n💰 Weekly: ₦5,000\n💎 Monthly: ₦15,000\n\nWhat you get:\n✅ All VIP betting markets\n✅ All AI prediction tools\n✅ Daily premium picks\n\n💳 Payment Details:\n" + paymentDetails + "\n\n📸 After payment, please upload a screenshot of your payment proof here.\n\n⚠️ Only image screenshots are accepted.";
+      if (userIsVip && !isAdmin) {
+        reply = "💎 You already have active VIP access. Enjoy!";
+      } else {
+        await KV.put("paymode:" + userId, "yes", { expirationTtl: 1800 });
+        reply = "💳 VIP SUBSCRIPTION\n━━━━━━━━━━\n💰 Weekly: ₦5,000\n💎 Monthly: ₦15,000\n\n💳 Payment Details:\n" + paymentDetails + "\n\n📸 After payment, please upload a screenshot of your payment proof here.\n\n⚠️ Only image screenshots are accepted.";
+      }
     }
     else if (text === "🆓 FREE TIPS") {
-      reply = "🆓 FREE TIPS ZONE\nPlease choose a market below 👇";
+      reply = "🆓 FREE TIPS ZONE\nChoose a market below 👇";
       keyboard = freeKb;
     } else if (text === "💎 VIP SECTION") {
-      reply = "💎 VIP ZONE 💎\nPlease select one below 👇";
+      reply = "💎 VIP ZONE 💎\nSelect one below 👇";
       keyboard = vipKb;
     } else if (text === "📈 PREDICTION TOOLS") {
       reply = "📈 PREDICTION TOOLS\nAdvanced AI tools below 👇";
@@ -161,9 +216,15 @@ export default {
     } else if (text === "🧠 AI CHAT") {
       reply = "🧠 AI CHAT ACTIVATED\nAsk anything. You have 3 minutes 💬\n(Coming soon: Full AI brain)";
     } else if (text === "👤 MY ACCOUNT") {
-      const status = isAdmin ? "👑 Admin" : "Free User";
-      const vip = isAdmin ? "✅ Lifetime Access" : "❌ Not Active";
-      reply = "👤 Your Profile\n━━━━━━━━━━\nID: " + userId + "\nStatus: " + status + "\nVIP: " + vip;
+      const status = isAdmin ? "👑 Admin" : (userIsVip ? "💎 VIP Member" : "Free User");
+      let vipInfo = "❌ Not Active";
+      if (isAdmin) vipInfo = "✅ Lifetime Access";
+      else if (userIsVip) {
+        const expiry = await KV.get("vip:" + userId);
+        const daysLeft = Math.ceil((parseInt(expiry) - Date.now()) / (24 * 60 * 60 * 1000));
+        vipInfo = "✅ Active (" + daysLeft + " days left)";
+      }
+      reply = "👤 Your Profile\n━━━━━━━━━━\nID: " + userId + "\nStatus: " + status + "\nVIP: " + vipInfo;
     } else if (text === "ℹ️ HELP") {
       reply = "ℹ️ HELP CENTER\n\n🆓 Free Tips\n💎 VIP - Premium odds\n📈 Tools - AI predictions\n🧠 AI Chat\n💳 Subscribe VIP";
     }
@@ -172,16 +233,16 @@ export default {
       keyboard = freeKb;
     }
     else if (text === "🎯 Correct Score" || text === "🏆 HT/FT" || text === "💥 Over 2.5 VIP" || text === "🔥 Over 3.5 VIP" || text === "📐 Corners VIP" || text === "🟨 Cards VIP" || text === "💰 2 Odds Daily" || text === "💎 5 Odds Daily" || text === "🚀 10 Odds Rollover" || text === "🏅 Banker of Day") {
-      if (isAdmin) {
-        reply = "👑 ADMIN ACCESS\n🧠 Analysing " + text + "...\n⏳ Please wait 3 minutes.";
+      if (userIsVip) {
+        reply = "💎 VIP ACCESS GRANTED\n🧠 Analysing " + text + "...\n⏳ Please wait 3 minutes.";
       } else {
         reply = "🔒 VIP ONLY 🔒\n" + text + " is locked.\n\nSubscribe to unlock 💎";
       }
       keyboard = vipKb;
     }
     else if (text === "🎲 Random Picker" || text === "📊 Stats Insight" || text === "🔮 AI Prediction" || text === "🏟️ League Picker" || text === "🌍 Country Games" || text === "⏰ Live Matches") {
-      if (isAdmin) {
-        reply = "👑 ADMIN ACCESS\n🧠 Running " + text + "...\n⏳ Please wait 3 minutes.";
+      if (userIsVip) {
+        reply = "💎 VIP ACCESS\n🧠 Running " + text + "...\n⏳ Please wait 3 minutes.";
       } else {
         reply = "🔒 VIP TOOL LOCKED 🔒\n" + text + " is premium.\n\nSubscribe to unlock 💎";
       }
