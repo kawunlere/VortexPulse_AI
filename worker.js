@@ -14,7 +14,6 @@ export default {
     const ADMIN_ID = parseInt(env.ADMIN_ID);
     const isAdmin = userId === ADMIN_ID;
 
-    // KEYBOARDS
     const adminKb = [
       ["📤 BROADCAST", "✅ POST WINNINGS"],
       ["🖼️ UPLOAD GAMES", "📊 BOT STATS"],
@@ -60,15 +59,13 @@ export default {
     let reply = "";
     let keyboard = isAdmin ? adminKb : userKb;
 
-    // ============ START ============
     if (text === "/start") {
       reply = isAdmin
         ? "Welcome Boss 👑\nVortexPulse Admin active. What would you like to do today?"
-        : "Welcome to VortexPulse AI 🚀\nI analyse markets to find the safest games for you. Pick an option below 👇";
+        : "Welcome to VortexPulse AI 🚀\nI analyse the markets to find the safest games for you. Please select an option below 👇";
     }
-    // ============ ADMIN CONTROLS ============
     else if (text === "🔄 SWITCH TO USER VIEW" && isAdmin) {
-      reply = "Switched to User View 👀\nYou can now test all user features. Click '🔙 BACK TO ADMIN' when done.";
+      reply = "Switched to User View 👀\nYou can now test all user features. Tap '🔙 BACK TO ADMIN' when done.";
       keyboard = userKbAdmin;
     } else if (text === "🔙 BACK TO ADMIN" && isAdmin) {
       reply = "Welcome back, Boss 👑";
@@ -76,7 +73,7 @@ export default {
     } else if (text === "📤 BROADCAST" && isAdmin) {
       reply = "Boss, type /send followed by your message to broadcast to everybody.";
     } else if (text === "✅ POST WINNINGS" && isAdmin) {
-      reply = "Send the winning screenshot now. I'll broadcast it sharp sharp! 🏆";
+      reply = "Send the winning screenshot now. I'll broadcast it instantly 🏆";
     } else if (text === "🖼️ UPLOAD GAMES" && isAdmin) {
       reply = "Drop the screenshot of the games, Boss. My AI brain is ready to scan 🧠";
     } else if (text === "📊 BOT STATS" && isAdmin) {
@@ -84,57 +81,47 @@ export default {
     } else if (text === "👥 MANAGE VIP" && isAdmin) {
       reply = "Use these commands:\n/addvip [user_id] - Add VIP\n/removevip [user_id] - Remove VIP\n/viplist - See all VIPs";
     }
-    // ============ MAIN MENU ============
     else if (text === "🆓 FREE TIPS") {
-      reply = "🆓 FREE TIPS ZONE\nChoose your market below 👇";
+      reply = "🆓 FREE TIPS ZONE\nPlease choose a market below 👇";
       keyboard = freeKb;
     } else if (text === "💎 VIP SECTION") {
-      reply = "💎 VIP ZONE 💎\nPremium markets with big odds. Pick one below 👇";
+      reply = "💎 VIP ZONE 💎\nPremium markets with high-value odds. Please select one below 👇";
       keyboard = vipKb;
     } else if (text === "📈 PREDICTION TOOLS") {
-      if (isAdmin) {
-        reply = "📈 PREDICTION TOOLS (Admin Access 👑)\nAI-powered tools below 👇";
-      } else {
-        reply = "🔒 PREDICTION TOOLS (VIP ONLY)\nThese advanced AI tools are locked. Subscribe to unlock 👇";
-      }
+      reply = "📈 PREDICTION TOOLS\nAdvanced AI-powered tools below 👇";
       keyboard = toolsKb;
     } else if (text === "🧠 AI CHAT") {
-      reply = "🧠 AI CHAT ACTIVATED\nFeel free to chat with me, my Oga! Ask anything about betting, football, or life. You have 3 minutes 💬\n\n(Coming soon: Full AI brain)";
+      reply = "🧠 AI CHAT ACTIVATED\nFeel free to chat with me. Ask anything about betting, football, or general questions. You have 3 minutes 💬\n\n(Coming soon: Full AI brain)";
     } else if (text === "👤 MY ACCOUNT") {
       const status = isAdmin ? "👑 Admin" : "Free User";
       const vip = isAdmin ? "✅ Lifetime Access" : "❌ Not Active";
       reply = "👤 Your Profile\n━━━━━━━━━━\nID: " + userId + "\nStatus: " + status + "\nVIP: " + vip + "\nJoined: Today";
     } else if (text === "ℹ️ HELP") {
-      reply = "ℹ️ HELP CENTER\n\n🆓 Free Tips - Simple safe games\n💎 VIP - Big odds (premium)\n📈 Tools - AI predictions (VIP)\n🧠 AI Chat - Talk to bot\n\nNeed help? Contact the Boss.";
+      reply = "ℹ️ HELP CENTER\n\n🆓 Free Tips - Simple safe games\n💎 VIP - High-value odds (premium)\n📈 Tools - AI predictions (VIP)\n🧠 AI Chat - Interactive AI assistant";
     }
-    // ============ FREE TIPS ============
     else if (text === "⚽ Straight Win" || text === "🎯 Double Chance" || text === "🔥 Over 1.5" || text === "💧 Under 3.5" || text === "🤝 Draw No Bet" || text === "🎪 BTTS") {
-      reply = "🧠 Analysing safe odds for " + text + "...\n⏳ Please wait 3 minutes while my AI scans all bookmakers.\n\nCome back shortly for your sure pick 🎯";
+      reply = "🧠 Analysing safe odds for " + text + "...\n⏳ Please wait 3 minutes while my AI scans all bookmakers.\n\nYour pick will be ready shortly 🎯";
       keyboard = freeKb;
     }
-    // ============ VIP TIPS ============
     else if (text === "🎯 Correct Score" || text === "🏆 HT/FT" || text === "💥 Over 2.5 VIP" || text === "🔥 Over 3.5 VIP" || text === "📐 Corners VIP" || text === "🟨 Cards VIP" || text === "💰 2 Odds Daily" || text === "💎 5 Odds Daily" || text === "🚀 10 Odds Rollover" || text === "🏅 Banker of Day") {
       if (isAdmin) {
         reply = "👑 ADMIN ACCESS GRANTED\n🧠 Analysing " + text + "...\n⏳ Please wait 3 minutes for the result.";
       } else {
-        reply = "🔒 VIP ONLY 🔒\n" + text + " is locked.\n\nSubscribe to unlock premium odds! 💎\nTap 💳 Subscribe VIP below.";
+        reply = "🔒 VIP ONLY 🔒\n" + text + " is locked.\n\nSubscribe to unlock premium odds 💎\nTap 💳 Subscribe VIP below.";
       }
       keyboard = vipKb;
     }
-    // ============ TOOLS (VIP LOCKED) ============
     else if (text === "🎲 Random Picker" || text === "📊 Stats Insight" || text === "🔮 AI Prediction" || text === "🏟️ League Picker" || text === "🌍 Country Games" || text === "⏰ Live Matches") {
       if (isAdmin) {
         reply = "👑 ADMIN ACCESS GRANTED\n🧠 Running " + text + "...\n⏳ Please wait 3 minutes for the result.";
       } else {
-        reply = "🔒 VIP TOOL LOCKED 🔒\n" + text + " is a premium AI tool.\n\nSubscribe to unlock! 💎\nTap 💳 Subscribe VIP below.";
+        reply = "🔒 VIP TOOL LOCKED 🔒\n" + text + " is a premium AI tool.\n\nSubscribe to unlock 💎\nTap 💳 Subscribe VIP below.";
       }
       keyboard = toolsKb;
     }
-    // ============ SUBSCRIPTION ============
     else if (text === "💳 Subscribe VIP") {
-      reply = "💳 VIP SUBSCRIPTION\n━━━━━━━━━━\n💰 Weekly: ₦5,000\n💎 Monthly: ₦15,000\n\nUnlocks:\n✅ All VIP betting markets\n✅ All AI prediction tools\n✅ Daily premium picks\n\n💳 Pay to:\nBank: [Your Bank]\nAccount: [Your Account]\nName: [Your Name]\n\n📸 After payment, send screenshot to Boss for approval.";
+      reply = "💳 VIP SUBSCRIPTION\n━━━━━━━━━━\n💰 Weekly: ₦5,000\n💎 Monthly: ₦15,000\n\nWhat you get:\n✅ All VIP betting markets\n✅ All AI prediction tools\n✅ Daily premium picks\n\n💳 Payment Details:\nBank: [Your Bank]\nAccount: [Your Account]\nName: [Your Name]\n\n📸 After payment, send your payment screenshot here.\n🤖 Confirming payment automatically...\nYour VIP access will be activated shortly ✅";
     }
-    // ============ BACK ============
     else if (text === "⬅️ BACK") {
       reply = "Back to main menu 🏠";
       keyboard = isAdmin ? userKbAdmin : userKb;
