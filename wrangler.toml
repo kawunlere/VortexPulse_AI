@@ -5,3 +5,6 @@ compatibility_date = "2024-01-01"
 [[kv_namespaces]]
 binding = "VORTEX_KV"
 id = "080705b37a2247488eb1c04b2cff9db2"
+
+[triggers]
+crons = ["0 7 * * *"]
