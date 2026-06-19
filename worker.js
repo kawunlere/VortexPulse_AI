@@ -6,11 +6,12 @@ export default {
 
     const update = await request.json();
     const msg = update.message;
-    if (!msg || !msg.text) return new Response("OK");
+    if (!msg) return new Response("OK");
 
     const chatId = msg.chat.id;
     const userId = msg.from.id;
-    const text = msg.text.trim();
+    const text = msg.text ? msg.text.trim() : "";
+    const hasPhoto = msg.photo ? true : false;
     const ADMIN_ID = parseInt(env.ADMIN_ID);
     const isAdmin = userId === ADMIN_ID;
 
@@ -21,12 +22,14 @@ export default {
     ];
     
     const userKb = [
+      ["💳 SUBSCRIBE VIP"],
       ["🆓 FREE TIPS", "💎 VIP SECTION"],
       ["📈 PREDICTION TOOLS", "🧠 AI CHAT"],
       ["👤 MY ACCOUNT", "ℹ️ HELP"]
     ];
     
     const userKbAdmin = [
+      ["💳 SUBSCRIBE VIP"],
       ["🆓 FREE TIPS", "💎 VIP SECTION"],
       ["📈 PREDICTION TOOLS", "🧠 AI CHAT"],
       ["👤 MY ACCOUNT", "ℹ️ HELP"],
@@ -46,18 +49,57 @@ export default {
       ["📐 Corners VIP", "🟨 Cards VIP"],
       ["💰 2 Odds Daily", "💎 5 Odds Daily"],
       ["🚀 10 Odds Rollover", "🏅 Banker of Day"],
-      ["💳 Subscribe VIP", "⬅️ BACK"]
+      ["⬅️ BACK"]
     ];
 
     const toolsKb = [
       ["🎲 Random Picker", "📊 Stats Insight"],
       ["🔮 AI Prediction", "🏟️ League Picker"],
       ["🌍 Country Games", "⏰ Live Matches"],
-      ["💳 Subscribe VIP", "⬅️ BACK"]
+      ["⬅️ BACK"]
     ];
 
     let reply = "";
     let keyboard = isAdmin ? adminKb : userKb;
+
+    // ============ PHOTO HANDLING (PAYMENT PROOF) ============
+    if (hasPhoto && !isAdmin) {
+      reply = "📸 Payment screenshot received ✅\n🤖 Confirming payment automatically...\n\nYour VIP access will be activated shortly. Please be patient ⏳";
+      
+      await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: chatId,
+          text: reply,
+          reply_markup: { keyboard: keyboard, resize_keyboard: true }
+        })
+      });
+
+      // Forward to admin for review
+      await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/forwardMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: ADMIN_ID,
+          from_chat_id: chatId,
+          message_id: msg.message_id
+        })
+      });
+
+      await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          chat_id: ADMIN_ID,
+          text: "💰 New payment proof from User ID: " + userId + "\nUse /addvip " + userId + " to approve."
+        })
+      });
+
+      return new Response("OK");
+    }
+
+    if (!text) return new Response("OK");
 
     if (text === "/start") {
       reply = isAdmin
@@ -81,6 +123,9 @@ export default {
     } else if (text === "👥 MANAGE VIP" && isAdmin) {
       reply = "Use these commands:\n/addvip [user_id] - Add VIP\n/removevip [user_id] - Remove VIP\n/viplist - See all VIPs";
     }
+    else if (text === "💳 SUBSCRIBE VIP") {
+      reply = "💳 VIP SUBSCRIPTION\n━━━━━━━━━━\n💰 Weekly: ₦5,000\n💎 Monthly: ₦15,000\n\nWhat you get:\n✅ All VIP betting markets\n✅ All AI prediction tools\n✅ Daily premium picks\n\n💳 Payment Details:\nBank: [Your Bank]\nAccount: [Your Account]\nName: [Your Name]\n\n📸 After payment, please upload a screenshot of your payment proof here.\n\n⚠️ Note: Only image screenshots are accepted. Text messages will be rejected automatically.";
+    }
     else if (text === "🆓 FREE TIPS") {
       reply = "🆓 FREE TIPS ZONE\nPlease choose a market below 👇";
       keyboard = freeKb;
@@ -97,7 +142,7 @@ export default {
       const vip = isAdmin ? "✅ Lifetime Access" : "❌ Not Active";
       reply = "👤 Your Profile\n━━━━━━━━━━\nID: " + userId + "\nStatus: " + status + "\nVIP: " + vip + "\nJoined: Today";
     } else if (text === "ℹ️ HELP") {
-      reply = "ℹ️ HELP CENTER\n\n🆓 Free Tips - Simple safe games\n💎 VIP - High-value odds (premium)\n📈 Tools - AI predictions (VIP)\n🧠 AI Chat - Interactive AI assistant";
+      reply = "ℹ️ HELP CENTER\n\n💳 Subscribe VIP - Unlock premium\n🆓 Free Tips - Simple safe games\n💎 VIP - High-value odds\n📈 Tools - AI predictions\n🧠 AI Chat - Interactive AI assistant";
     }
     else if (text === "⚽ Straight Win" || text === "🎯 Double Chance" || text === "🔥 Over 1.5" || text === "💧 Under 3.5" || text === "🤝 Draw No Bet" || text === "🎪 BTTS") {
       reply = "🧠 Analysing safe odds for " + text + "...\n⏳ Please wait 3 minutes while my AI scans all bookmakers.\n\nYour pick will be ready shortly 🎯";
@@ -107,7 +152,7 @@ export default {
       if (isAdmin) {
         reply = "👑 ADMIN ACCESS GRANTED\n🧠 Analysing " + text + "...\n⏳ Please wait 3 minutes for the result.";
       } else {
-        reply = "🔒 VIP ONLY 🔒\n" + text + " is locked.\n\nSubscribe to unlock premium odds 💎\nTap 💳 Subscribe VIP below.";
+        reply = "🔒 VIP ONLY 🔒\n" + text + " is locked.\n\nSubscribe to unlock premium odds 💎\nTap 💳 SUBSCRIBE VIP from the main menu.";
       }
       keyboard = vipKb;
     }
@@ -115,12 +160,9 @@ export default {
       if (isAdmin) {
         reply = "👑 ADMIN ACCESS GRANTED\n🧠 Running " + text + "...\n⏳ Please wait 3 minutes for the result.";
       } else {
-        reply = "🔒 VIP TOOL LOCKED 🔒\n" + text + " is a premium AI tool.\n\nSubscribe to unlock 💎\nTap 💳 Subscribe VIP below.";
+        reply = "🔒 VIP TOOL LOCKED 🔒\n" + text + " is a premium AI tool.\n\nSubscribe to unlock 💎\nTap 💳 SUBSCRIBE VIP from the main menu.";
       }
       keyboard = toolsKb;
-    }
-    else if (text === "💳 Subscribe VIP") {
-      reply = "💳 VIP SUBSCRIPTION\n━━━━━━━━━━\n💰 Weekly: ₦5,000\n💎 Monthly: ₦15,000\n\nWhat you get:\n✅ All VIP betting markets\n✅ All AI prediction tools\n✅ Daily premium picks\n\n💳 Payment Details:\nBank: [Your Bank]\nAccount: [Your Account]\nName: [Your Name]\n\n📸 After payment, send your payment screenshot here.\n🤖 Confirming payment automatically...\nYour VIP access will be activated shortly ✅";
     }
     else if (text === "⬅️ BACK") {
       reply = "Back to main menu 🏠";
