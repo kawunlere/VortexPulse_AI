@@ -15,24 +15,28 @@ export default {
     const ADMIN_ID = parseInt(env.ADMIN_ID);
     const isAdmin = userId === ADMIN_ID;
 
+    // KV Storage for payment mode tracking and payment details
+    const KV = env.VORTEX_KV;
+
     const adminKb = [
       ["📤 BROADCAST", "✅ POST WINNINGS"],
       ["🖼️ UPLOAD GAMES", "📊 BOT STATS"],
-      ["👥 MANAGE VIP", "🔄 SWITCH TO USER VIEW"]
+      ["👥 MANAGE VIP", "💳 EDIT PAYMENT"],
+      ["🔄 SWITCH TO USER VIEW"]
     ];
     
     const userKb = [
-      ["💳 SUBSCRIBE VIP"],
-      ["🆓 FREE TIPS", "💎 VIP SECTION"],
-      ["📈 PREDICTION TOOLS", "🧠 AI CHAT"],
-      ["👤 MY ACCOUNT", "ℹ️ HELP"]
-    ];
-    
-    const userKbAdmin = [
-      ["💳 SUBSCRIBE VIP"],
       ["🆓 FREE TIPS", "💎 VIP SECTION"],
       ["📈 PREDICTION TOOLS", "🧠 AI CHAT"],
       ["👤 MY ACCOUNT", "ℹ️ HELP"],
+      ["💳 SUBSCRIBE VIP"]
+    ];
+    
+    const userKbAdmin = [
+      ["🆓 FREE TIPS", "💎 VIP SECTION"],
+      ["📈 PREDICTION TOOLS", "🧠 AI CHAT"],
+      ["👤 MY ACCOUNT", "ℹ️ HELP"],
+      ["💳 SUBSCRIBE VIP"],
       ["🔙 BACK TO ADMIN"]
     ];
 
@@ -62,44 +66,91 @@ export default {
     let reply = "";
     let keyboard = isAdmin ? adminKb : userKb;
 
-    // ============ PHOTO HANDLING (PAYMENT PROOF) ============
-    if (hasPhoto && !isAdmin) {
-      reply = "📸 Payment screenshot received ✅\n🤖 Confirming payment automatically...\n\nYour VIP access will be activated shortly. Please be patient ⏳";
+    // Get payment details from KV or use default
+    let paymentDetails = "Bank: [Not Set]\nAccount: [Not Set]\nName: [Not Set]";
+    if (KV) {
+      const stored = await KV.get("payment_details");
+      if (stored) paymentDetails = stored;
+    }
+
+    // Check if user is in payment mode
+    let inPaymentMode = false;
+    if (KV) {
+      const mode = await KV.get("pay_mode_" + userId);
+      if (mode === "yes") inPaymentMode = true;
+    }
+
+    // ============ PHOTO HANDLING ============
+    if (hasPhoto) {
+      if (isAdmin) {
+        return new Response("OK");
+      }
       
-      await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: chatId,
-          text: reply,
-          reply_markup: { keyboard: keyboard, resize_keyboard: true }
-        })
-      });
+      if (inPaymentMode) {
+        reply = "📸 Payment screenshot received ✅\n🤖 Confirming payment automatically...\n\nYour VIP access will be activated shortly. Please be patient ⏳";
+        
+        // Clear payment mode
+        if (KV) await KV.delete("pay_mode_" + userId);
+        
+        await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: reply,
+            reply_markup: { keyboard: userKb, resize_keyboard: true }
+          })
+        });
 
-      // Forward to admin for review
-      await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/forwardMessage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: ADMIN_ID,
-          from_chat_id: chatId,
-          message_id: msg.message_id
-        })
-      });
+        await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/forwardMessage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: ADMIN_ID,
+            from_chat_id: chatId,
+            message_id: msg.message_id
+          })
+        });
 
-      await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          chat_id: ADMIN_ID,
-          text: "💰 New payment proof from User ID: " + userId + "\nUse /addvip " + userId + " to approve."
-        })
-      });
+        await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: ADMIN_ID,
+            text: "💰 New payment proof from User ID: " + userId + "\nUse /addvip " + userId + " to approve."
+          })
+        });
 
-      return new Response("OK");
+        return new Response("OK");
+      } else {
+        reply = "❌ I only accept screenshots when you're subscribing.\nPlease use the buttons below 👇";
+        await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: reply,
+            reply_markup: { keyboard: userKb, resize_keyboard: true }
+          })
+        });
+        return new Response("OK");
+      }
     }
 
     if (!text) return new Response("OK");
+
+    // ============ ADMIN COMMANDS ============
+    if (text.startsWith("/setpayment ") && isAdmin) {
+      const newDetails = text.replace("/setpayment ", "");
+      if (KV) await KV.put("payment_details", newDetails);
+      reply = "✅ Payment details updated:\n\n" + newDetails;
+      await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ chat_id: chatId, text: reply, reply_markup: { keyboard: adminKb, resize_keyboard: true } })
+      });
+      return new Response("OK");
+    }
 
     if (text === "/start") {
       reply = isAdmin
@@ -122,9 +173,13 @@ export default {
       reply = "📊 VortexPulse Stats:\n👥 Users: 1\n💎 VIPs: 0\n🎯 Games: 0\n📈 Win Rate: 0%";
     } else if (text === "👥 MANAGE VIP" && isAdmin) {
       reply = "Use these commands:\n/addvip [user_id] - Add VIP\n/removevip [user_id] - Remove VIP\n/viplist - See all VIPs";
+    } else if (text === "💳 EDIT PAYMENT" && isAdmin) {
+      reply = "💳 Edit Payment Details\n\nCurrent details:\n" + paymentDetails + "\n\nTo update, send:\n/setpayment Bank: GTB\nAccount: 0123456789\nName: Your Name\n\n(Copy the format exactly)";
     }
     else if (text === "💳 SUBSCRIBE VIP") {
-      reply = "💳 VIP SUBSCRIPTION\n━━━━━━━━━━\n💰 Weekly: ₦5,000\n💎 Monthly: ₦15,000\n\nWhat you get:\n✅ All VIP betting markets\n✅ All AI prediction tools\n✅ Daily premium picks\n\n💳 Payment Details:\nBank: [Your Bank]\nAccount: [Your Account]\nName: [Your Name]\n\n📸 After payment, please upload a screenshot of your payment proof here.\n\n⚠️ Note: Only image screenshots are accepted. Text messages will be rejected automatically.";
+      // Activate payment mode
+      if (KV) await KV.put("pay_mode_" + userId, "yes", { expirationTtl: 1800 });
+      reply = "💳 VIP SUBSCRIPTION\n━━━━━━━━━━\n💰 Weekly: ₦5,000\n💎 Monthly: ₦15,000\n\nWhat you get:\n✅ All VIP betting markets\n✅ All AI prediction tools\n✅ Daily premium picks\n\n💳 Payment Details:\n" + paymentDetails + "\n\n📸 After payment, please upload a screenshot of your payment proof here.\n\n⚠️ Only image screenshots are accepted. Text messages will be ignored.";
     }
     else if (text === "🆓 FREE TIPS") {
       reply = "🆓 FREE TIPS ZONE\nPlease choose a market below 👇";
@@ -142,7 +197,7 @@ export default {
       const vip = isAdmin ? "✅ Lifetime Access" : "❌ Not Active";
       reply = "👤 Your Profile\n━━━━━━━━━━\nID: " + userId + "\nStatus: " + status + "\nVIP: " + vip + "\nJoined: Today";
     } else if (text === "ℹ️ HELP") {
-      reply = "ℹ️ HELP CENTER\n\n💳 Subscribe VIP - Unlock premium\n🆓 Free Tips - Simple safe games\n💎 VIP - High-value odds\n📈 Tools - AI predictions\n🧠 AI Chat - Interactive AI assistant";
+      reply = "ℹ️ HELP CENTER\n\n🆓 Free Tips - Simple safe games\n💎 VIP - High-value odds\n📈 Tools - AI predictions\n🧠 AI Chat - Interactive AI assistant\n💳 Subscribe VIP - Unlock premium";
     }
     else if (text === "⚽ Straight Win" || text === "🎯 Double Chance" || text === "🔥 Over 1.5" || text === "💧 Under 3.5" || text === "🤝 Draw No Bet" || text === "🎪 BTTS") {
       reply = "🧠 Analysing safe odds for " + text + "...\n⏳ Please wait 3 minutes while my AI scans all bookmakers.\n\nYour pick will be ready shortly 🎯";
