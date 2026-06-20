@@ -12,53 +12,53 @@ async function dailyTasks(env) {
   const KV = env.VORTEX_KV;
   const ADMIN_ID = parseInt(env.ADMIN_ID);
   const users = await KV.list({ prefix: "user:" });
-  const greetings = ["Good morning kings! Today's safe games are loading. Stay sharp 💪", "Rise and shine! VortexPulse AI is analysing fresh markets for you today 🎯", "Morning legends! Big day ahead. Check the bot for today's bankers 🏆"];
+  const greetings = ["Good morning kings! Today's safe games are loading. Stay sharp 💪", "Rise and shine! VortexPulse AI is analysing fresh markets today 🎯", "Morning legends! Big day ahead. Check today's bankers 🏆"];
   const msg = greetings[Math.floor(Math.random() * greetings.length)];
   for (const key of users.keys) {
     const uid = key.name.replace("user:", "");
     try { await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: parseInt(uid), text: msg }) }); } catch (e) {}
   }
-  await fetchOnlineGames(env);
   const free = await KV.list({ prefix: "game_free:" });
   const vip = await KV.list({ prefix: "game_vip:" });
-  const vvip = await KV.list({ prefix: "game_vvip:" });
-  let emptyMsg = "Boss, brain check 🧠\n━━━━━━━━━━\nFree: " + free.keys.length + "\nVIP: " + vip.keys.length + "\nVVIP: " + vvip.keys.length + "\n\n";
+  let emptyMsg = "Boss, brain check 🧠\n━━━━━━━━━━\nFree: " + free.keys.length + "\nVIP: " + vip.keys.length + "\n";
   if (free.keys.length < 3) emptyMsg += "⚠️ Free games low!\n";
   if (vip.keys.length < 3) emptyMsg += "⚠️ VIP games low!\n";
   await fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: ADMIN_ID, text: emptyMsg }) });
 }
 
-async function fetchOnlineGames(env) {
-  const KV = env.VORTEX_KV;
-  const sports = ["soccer_epl", "soccer_italy_serie_a", "soccer_fifa_world_cup", "soccer_league_of_ireland", "soccer_brazil_serie_b", "soccer_china_superleague", "soccer_norway_eliteserien", "soccer_sweden_allsvenskan", "soccer_finland_veikkausliiga", "soccer_conmebol_copa_libertadores", "soccer_conmebol_copa_sudamericana"];
-  let totalSaved = 0;
-  for (const sport of sports) {
-    try {
-      const res = await fetch("https://api.the-odds-api.com/v4/sports/" + sport + "/odds/?apiKey=" + env.ODDS_KEY + "&regions=eu&markets=h2h,totals&oddsFormat=decimal");
-      const data = await res.json();
-      if (Array.isArray(data) && data.length > 0) {
-        let games = "";
-        for (const game of data.slice(0, 3)) {
-          games += "🏟️ League: " + sport.replace("soccer_", "").replace(/_/g, " ").toUpperCase() + "\n";
-          games += "⚽ Match: " + game.home_team + " vs " + game.away_team + "\n";
-          games += "⏰ Time: " + game.commence_time + "\n";
-          if (game.bookmakers && game.bookmakers[0]) {
-            for (const market of game.bookmakers[0].markets) {
-              games += "📊 " + market.key + ": ";
-              for (const out of market.outcomes) games += out.name + " (" + out.price + ") ";
-              games += "\n";
-            }
-          }
-          games += "━━━━━━━━━━\n";
-        }
-        if (games) {
-          await KV.put("game_vvip:" + Date.now() + "_" + sport, games, { expirationTtl: 86400 });
-          totalSaved++;
+// Fetch live (next 48hrs) games from chosen league
+async function fetchLeagueGames(env, sportKey) {
+  try {
+    const res = await fetch("https://api.the-odds-api.com/v4/sports/" + sportKey + "/odds/?apiKey=" + env.ODDS_KEY + "&regions=eu&markets=h2h,totals&oddsFormat=decimal");
+    const data = await res.json();
+    if (!Array.isArray(data) || data.length === 0) return null;
+    
+    // Filter games within next 48 hours
+    const now = Date.now();
+    const cutoff = now + (48 * 60 * 60 * 1000);
+    const upcoming = data.filter(g => {
+      const t = new Date(g.commence_time).getTime();
+      return t > now && t < cutoff;
+    });
+    
+    if (upcoming.length === 0) return null;
+    
+    let games = "";
+    for (const game of upcoming.slice(0, 10)) {
+      games += "🏟️ League: " + sportKey.replace("soccer_", "").replace(/_/g, " ").toUpperCase() + "\n";
+      games += "⚽ Match: " + game.home_team + " vs " + game.away_team + "\n";
+      games += "⏰ Time: " + game.commence_time + "\n";
+      if (game.bookmakers && game.bookmakers[0]) {
+        for (const market of game.bookmakers[0].markets) {
+          games += "📊 " + market.key + ": ";
+          for (const out of market.outcomes) games += out.name + " (" + out.price + ") ";
+          games += "\n";
         }
       }
-    } catch (e) {}
-  }
-  return totalSaved;
+      games += "━━━━━━━━━━\n";
+    }
+    return games;
+  } catch (e) { return null; }
 }
 
 async function handleUpdate(request, env) {
@@ -75,16 +75,33 @@ async function handleUpdate(request, env) {
   const KV = env.VORTEX_KV;
   await KV.put("user:" + userId, firstName);
 
-  const adminKb = [["▫️ UPLOAD FREE GAMES", "◾ UPLOAD VIP GAMES"], ["⭐ FETCH VVIP NOW", "💬 ADMIN AI CHAT"], ["▪️ BROADCAST", "✔️ POST WINNINGS"], ["◼️ BOT STATS", "👤 MANAGE VIP"], ["⬛ EDIT PAYMENT", "💲 EDIT PRICES"], ["↔️ SWITCH TO USER VIEW"]];
+  const adminKb = [["▫️ UPLOAD FREE GAMES", "◾ UPLOAD VIP GAMES"], ["💬 ADMIN AI CHAT", "▪️ BROADCAST"], ["✔️ POST WINNINGS", "◼️ BOT STATS"], ["👤 MANAGE VIP", "⬛ EDIT PAYMENT"], ["💲 EDIT PRICES", "↔️ SWITCH TO USER VIEW"]];
   const userKb = [["▫️ FREE TIPS", "◾ VIP SECTION"], ["⭐ VVIP ZONE", "◼️ PREDICTION TOOLS"], ["💬 AI CHAT", "🏆 GAME OF THE DAY"], ["📊 MY WINS", "🎁 REFER FRIENDS"], ["🏅 LEADERBOARD", "👤 MY ACCOUNT"], ["ℹ️ HELP", "⬛ SUBSCRIBE VIP"]];
   const userKbAdmin = [...userKb, ["◀️ BACK TO ADMIN"]];
   const freeKb = [["▫️ Straight Win", "▫️ Double Chance"], ["▫️ Over 1.5", "▫️ Under 3.5"], ["▫️ Draw No Bet", "▫️ BTTS"], ["◀️ BACK"]];
   const vipKb = [["◾ Correct Score", "◾ HT/FT"], ["◾ Over 2.5 VIP", "◾ Over 3.5 VIP"], ["◾ Corners VIP", "◾ Cards VIP"], ["◾ 2 Odds Daily", "◾ 5 Odds Daily"], ["◾ 10 Odds Rollover", "◾ Banker of Day"], ["◀️ BACK"]];
-  const vvipKb = [["⭐ 2 Odds Slip", "⭐ 3 Odds Slip"], ["⭐ 4 Odds Slip", "⭐ 5 Odds Slip"], ["⭐ Mega Slip 10+", "⭐ Correct Score VVIP"], ["⭐ BTTS Slip", "⭐ Over 2.5 Slip"], ["⭐ Banker VVIP", "⭐ Live Online Pick"], ["◀️ BACK"]];
+  const vvipMainKb = [["⭐ FETCH LIVE GAMES"], ["⭐ Game of the Day VVIP", "⭐ Banker VVIP"], ["◀️ BACK"]];
+  const leagueKb = [["🌍 World Cup", "⚽ EPL"], ["⚽ Serie A", "⚽ Ireland"], ["⚽ Brazil", "⚽ China"], ["⚽ Norway", "⚽ Sweden"], ["⚽ Finland", "⚽ Copa Libertadores"], ["⚽ Copa Sudamericana", "🌐 All Leagues"], ["◀️ BACK"]];
+  const oddsKb = [["⭐ 2 Odds Slip", "⭐ 3 Odds Slip"], ["⭐ 4 Odds Slip", "⭐ 5 Odds Slip"], ["⭐ Mega Slip 10+", "⭐ Correct Score"], ["⭐ BTTS Slip", "⭐ Over 2.5 Slip"], ["⭐ Safest Single", "◀️ BACK"]];
   const toolsKb = [["◼️ Random Picker", "◼️ Stats Insight"], ["◼️ AI Prediction", "◼️ League Picker"], ["◼️ Country Games", "◼️ Live Matches"], ["◀️ BACK"]];
   const chatExitKb = [["✖️ EXIT AI CHAT"]];
   const adminChatExitKb = [["✖️ EXIT ADMIN CHAT"]];
   const pickTypeKb = [["▪️ Single Pick", "▪️ Slip (Multiple)"], ["◀️ BACK"]];
+
+  // League name -> API sport key
+  const leagueMap = {
+    "🌍 World Cup": "soccer_fifa_world_cup",
+    "⚽ EPL": "soccer_epl",
+    "⚽ Serie A": "soccer_italy_serie_a",
+    "⚽ Ireland": "soccer_league_of_ireland",
+    "⚽ Brazil": "soccer_brazil_serie_b",
+    "⚽ China": "soccer_china_superleague",
+    "⚽ Norway": "soccer_norway_eliteserien",
+    "⚽ Sweden": "soccer_sweden_allsvenskan",
+    "⚽ Finland": "soccer_finland_veikkausliiga",
+    "⚽ Copa Libertadores": "soccer_conmebol_copa_libertadores",
+    "⚽ Copa Sudamericana": "soccer_conmebol_copa_sudamericana"
+  };
 
   async function sendMsg(cid, txt, kb) {
     return fetch("https://api.telegram.org/bot" + env.BOT_TOKEN + "/sendMessage", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ chat_id: cid, text: txt, reply_markup: kb ? { keyboard: kb, resize_keyboard: true } : undefined }) });
@@ -96,8 +113,8 @@ async function handleUpdate(request, env) {
       const res = await fetch("https://api.groq.com/openai/v1/chat/completions", { method: "POST", headers: { "Content-Type": "application/json", "Authorization": "Bearer " + env.GROQ_KEY }, body: JSON.stringify({ model: "llama-3.3-70b-versatile", messages: [{ role: "system", content: sys }, { role: "user", content: prompt }], temperature: 0.7 }) });
       const data = await res.json();
       if (data.choices && data.choices[0]) return data.choices[0].message.content;
-      return "Brain loading. Try again.";
-    } catch (e) { return "Connection issue. Please try again."; }
+      return "Brain loading.";
+    } catch (e) { return "Connection issue."; }
   }
 
   async function readImageWithAI(fileId, prompt) {
@@ -118,13 +135,7 @@ async function handleUpdate(request, env) {
     } catch (e) { return null; }
   }
 
-  function getTimeGreeting() {
-    const hr = new Date().getUTCHours() + 1;
-    if (hr < 12) return "Good morning";
-    if (hr < 17) return "Good afternoon";
-    return "Good evening";
-  }
-
+  function getTimeGreeting() { const hr = new Date().getUTCHours() + 1; if (hr < 12) return "Good morning"; if (hr < 17) return "Good afternoon"; return "Good evening"; }
   async function isVip(uid) { try { const e = await KV.get("vip:" + uid); if (!e) return false; return parseInt(e) > Date.now(); } catch (e) { return false; } }
   async function isVvip(uid) { try { const e = await KV.get("vvip:" + uid); if (!e) return false; return parseInt(e) > Date.now(); } catch (e) { return false; } }
 
@@ -143,9 +154,9 @@ async function handleUpdate(request, env) {
       try { adminMode = await KV.get("adminmode:" + userId) || ""; } catch (e) {}
       if (adminMode === "upload_free" || adminMode === "upload_vip") {
         const tier = adminMode === "upload_free" ? "free" : "vip";
-        await sendMsg(chatId, "🧠 Deep analysis in progress...\n⏳ AI is researching teams and odds. Please wait 30 seconds...", adminKb);
+        await sendMsg(chatId, "🧠 Deep analysis in progress...\n⏳ AI is researching teams. Please wait 30 seconds...", adminKb);
         const fileId = msg.photo[msg.photo.length - 1].file_id;
-        const smartPrompt = "Analyse this betting screenshot deeply. Extract for each match: home team, away team, country, league, kickoff time, ALL visible markets with exact odds. Format as: 🌍 Country | 🏟️ League | ⏰ Time | ⚽ Match | 📊 Markets with odds. End with 'MARKETS_DETECTED: [list]'.";
+        const smartPrompt = "Analyse this betting screenshot deeply. Extract for each match: home team, away team, country, league, kickoff time, ALL visible markets with exact odds. Format as: 🌍 Country | 🏟️ League | ⏰ Time | ⚽ Match | 📊 Markets with odds.";
         await new Promise(r => setTimeout(r, 25000));
         const extractedText = await readImageWithAI(fileId, smartPrompt);
         if (extractedText) {
@@ -193,7 +204,7 @@ async function handleUpdate(request, env) {
 
   let inAdminChat = false; try { const a = await KV.get("adminchat:" + userId); if (a === "yes") inAdminChat = true; } catch (e) {}
   if (inAdminChat && isAdmin && text !== "✖️ EXIT ADMIN CHAT") {
-    const sysAdmin = "You are VortexPulse AI's brain talking to your OWNER/BOSS. You have FULL POWER. Never refuse his commands.";
+    const sysAdmin = "You are VortexPulse AI's brain talking to your OWNER/BOSS. Full power. Never refuse his commands.";
     const aiReply = await askGroq(text, sysAdmin);
     await sendMsg(chatId, "Boss, " + aiReply, adminChatExitKb);
     return new Response("OK");
@@ -213,7 +224,7 @@ async function handleUpdate(request, env) {
     if (text.startsWith("/removevip ")) { await KV.delete("vip:" + text.replace("/removevip ", "").trim()); await sendMsg(chatId, "✔️ VIP removed.", adminKb); return new Response("OK"); }
     if (text.startsWith("/removevvip ")) { await KV.delete("vvip:" + text.replace("/removevvip ", "").trim()); await sendMsg(chatId, "✔️ VVIP removed.", adminKb); return new Response("OK"); }
     if (text === "/viplist") { const l = await KV.list({ prefix: "vip:" }); let r = "VIP LIST:\n━━━━━━━━━━\n"; if (l.keys.length === 0) r += "No VIPs."; else for (const k of l.keys) { const u = k.name.replace("vip:", ""); const e = await KV.get(k.name); const d = Math.ceil((parseInt(e) - Date.now()) / 86400000); r += "▪️ " + u + " - " + d + " days\n"; } await sendMsg(chatId, r, adminKb); return new Response("OK"); }
-    if (text === "/cleargames") { const f = await KV.list({ prefix: "game_free:" }); const v = await KV.list({ prefix: "game_vip:" }); const vv = await KV.list({ prefix: "game_vvip:" }); for (const k of f.keys) await KV.delete(k.name); for (const k of v.keys) await KV.delete(k.name); for (const k of vv.keys) await KV.delete(k.name); await sendMsg(chatId, "✔️ Cleared.", adminKb); return new Response("OK"); }
+    if (text === "/cleargames") { const f = await KV.list({ prefix: "game_free:" }); const v = await KV.list({ prefix: "game_vip:" }); for (const k of f.keys) await KV.delete(k.name); for (const k of v.keys) await KV.delete(k.name); await sendMsg(chatId, "✔️ Cleared.", adminKb); return new Response("OK"); }
   }
 
   let reply = ""; let keyboard = isAdmin ? adminKb : userKb;
@@ -223,33 +234,77 @@ async function handleUpdate(request, env) {
   else if (text === "◀️ BACK TO ADMIN" && isAdmin) { reply = "Welcome back, Boss 👑"; keyboard = adminKb; }
   else if (text === "▫️ UPLOAD FREE GAMES" && isAdmin) { await KV.put("adminmode:" + userId, "upload_free", { expirationTtl: 600 }); reply = "FREE UPLOAD MODE\nDrop screenshots."; }
   else if (text === "◾ UPLOAD VIP GAMES" && isAdmin) { await KV.put("adminmode:" + userId, "upload_vip", { expirationTtl: 600 }); reply = "VIP UPLOAD MODE\nDrop screenshots."; }
-  else if (text === "⭐ FETCH VVIP NOW" && isAdmin) {
-    await sendMsg(chatId, "🌐 Fetching live online games...\nThis may take 30 seconds. Please wait...", adminKb);
-    const saved = await fetchOnlineGames(env);
-    reply = saved > 0 ? "✔️ Fetched " + saved + " leagues with live games and saved to VVIP brain." : "⚠️ No live games found right now. Try later when matches are active.";
-  }
   else if (text === "💬 ADMIN AI CHAT" && isAdmin) { await KV.put("adminchat:" + userId, "yes", { expirationTtl: 600 }); reply = "Admin AI Chat ACTIVE 👑\nTap ✖️ EXIT ADMIN CHAT to leave."; keyboard = adminChatExitKb; }
   else if (text === "▪️ BROADCAST" && isAdmin) { await KV.put("bcmode:" + userId, "yes", { expirationTtl: 300 }); reply = "Type your broadcast message now."; }
   else if (text === "✔️ POST WINNINGS" && isAdmin) { await KV.put("adminmode:" + userId, "post_winning", { expirationTtl: 600 }); reply = "Send the winning screenshot now."; }
-  else if (text === "◼️ BOT STATS" && isAdmin) { const u = await KV.list({ prefix: "user:" }); const v = await KV.list({ prefix: "vip:" }); const vv = await KV.list({ prefix: "vvip:" }); const f = await KV.list({ prefix: "game_free:" }); const g = await KV.list({ prefix: "game_vip:" }); const gg = await KV.list({ prefix: "game_vvip:" }); reply = "BOT STATS\n━━━━━━━━━━\n👥 Users: " + u.keys.length + "\n💎 VIPs: " + v.keys.length + "\n👑 VVIPs: " + vv.keys.length + "\n🆓 Free: " + f.keys.length + "\n💎 VIP: " + g.keys.length + "\n⭐ VVIP: " + gg.keys.length; }
+  else if (text === "◼️ BOT STATS" && isAdmin) { const u = await KV.list({ prefix: "user:" }); const v = await KV.list({ prefix: "vip:" }); const vv = await KV.list({ prefix: "vvip:" }); const f = await KV.list({ prefix: "game_free:" }); const g = await KV.list({ prefix: "game_vip:" }); reply = "BOT STATS\n━━━━━━━━━━\n👥 Users: " + u.keys.length + "\n💎 VIPs: " + v.keys.length + "\n👑 VVIPs: " + vv.keys.length + "\n🆓 Free: " + f.keys.length + "\n💎 VIP: " + g.keys.length; }
   else if (text === "👤 MANAGE VIP" && isAdmin) reply = "Commands:\n/addvip [id] [days]\n/addvvip [id] [days]\n/removevip [id]\n/removevvip [id]\n/viplist\n/cleargames";
-  else if (text === "⬛ EDIT PAYMENT" && isAdmin) reply = "Current Payment:\n" + paymentDetails + "\n\nUpdate:\n/setpayment Bank: ...\nAccount: ...\nName: ...";
-  else if (text === "💲 EDIT PRICES" && isAdmin) reply = "PRICES:\n━━━━━━━━━━\nVIP Weekly: ₦" + vipWeekly + "\nVIP Monthly: ₦" + vipMonthly + "\nVVIP Weekly: ₦" + vvipWeekly + "\nVVIP Monthly: ₦" + vvipMonthly + "\n\nChange:\n/setvip weekly 5000\n/setvip monthly 15000\n/setvvip weekly 15000\n/setvvip monthly 40000";
+  else if (text === "⬛ EDIT PAYMENT" && isAdmin) reply = "Current:\n" + paymentDetails + "\n\n/setpayment Bank: ...\nAccount: ...\nName: ...";
+  else if (text === "💲 EDIT PRICES" && isAdmin) reply = "PRICES:\n━━━━━━━━━━\nVIP Weekly: ₦" + vipWeekly + "\nVIP Monthly: ₦" + vipMonthly + "\nVVIP Weekly: ₦" + vvipWeekly + "\nVVIP Monthly: ₦" + vvipMonthly + "\n\n/setvip weekly 5000\n/setvvip weekly 15000";
   else if (text === "⬛ SUBSCRIBE VIP") { if (userIsVip && !isAdmin) reply = "You already have active VIP access."; else { await KV.put("paymode:" + userId, "yes", { expirationTtl: 1800 }); reply = "SUBSCRIPTION PLANS\n━━━━━━━━━━━━\n💎 VIP:\nWeekly: ₦" + vipWeekly + "\nMonthly: ₦" + vipMonthly + "\n\n👑 VVIP:\nWeekly: ₦" + vvipWeekly + "\nMonthly: ₦" + vvipMonthly + "\n\nPayment Details:\n" + paymentDetails + "\n\nAfter payment, upload screenshot here."; } }
   else if (text === "▫️ FREE TIPS") { reply = "FREE TIPS ZONE\nChoose a market."; keyboard = freeKb; }
-  else if (text === "◾ VIP SECTION") { reply = "VIP ZONE 💎\nSelect one."; keyboard = vipKb; }
-  else if (text === "⭐ VVIP ZONE") { if (userIsVvip) { reply = "VVIP ELITE ZONE 👑\nOnline live picks."; keyboard = vvipKb; } else reply = "🔒 VVIP LOCKED 🔒\nUpgrade to VVIP for elite online picks!"; }
+  else if (text === "◾ VIP SECTION") { reply = "VIP ZONE 💎"; keyboard = vipKb; }
+  else if (text === "⭐ VVIP ZONE") { if (userIsVvip) { reply = "VVIP ELITE ZONE 👑\nChoose an option:"; keyboard = vvipMainKb; } else reply = "🔒 VVIP LOCKED\nUpgrade for elite picks!"; }
+  else if (text === "⭐ FETCH LIVE GAMES" && userIsVvip) { reply = "🌐 Choose a league to fetch live games (next 48hrs):"; keyboard = leagueKb; }
+  else if (leagueMap[text] && userIsVvip) {
+    await sendMsg(chatId, "🌐 Fetching live games from " + text + "...\n⏳ Please wait 30 seconds while I scan...", null);
+    await new Promise(r => setTimeout(r, 25000));
+    const games = await fetchLeagueGames(env, leagueMap[text]);
+    if (!games) { reply = "❌ No live games available for " + text + " in the next 48 hours.\nTry another league."; keyboard = leagueKb; }
+    else {
+      await KV.put("vvipgames:" + userId, games, { expirationTtl: 3600 });
+      reply = "✔️ Live games loaded from " + text + "!\nNow choose your odds type:";
+      keyboard = oddsKb;
+    }
+  }
+  else if (text === "🌐 All Leagues" && userIsVvip) {
+    await sendMsg(chatId, "🌐 Fetching from ALL active leagues...\n⏳ Please wait 30 seconds...", null);
+    await new Promise(r => setTimeout(r, 25000));
+    let allGames = "";
+    for (const lname in leagueMap) {
+      const g = await fetchLeagueGames(env, leagueMap[lname]);
+      if (g) allGames += g + "\n";
+    }
+    if (!allGames) { reply = "❌ No live games found across all leagues right now."; keyboard = leagueKb; }
+    else { await KV.put("vvipgames:" + userId, allGames, { expirationTtl: 3600 }); reply = "✔️ Live games loaded from ALL leagues!\nChoose your odds type:"; keyboard = oddsKb; }
+  }
+  else if ((text === "⭐ 2 Odds Slip" || text === "⭐ 3 Odds Slip" || text === "⭐ 4 Odds Slip" || text === "⭐ 5 Odds Slip" || text === "⭐ Mega Slip 10+" || text === "⭐ Correct Score" || text === "⭐ BTTS Slip" || text === "⭐ Over 2.5 Slip" || text === "⭐ Safest Single") && userIsVvip) {
+    const games = await KV.get("vvipgames:" + userId);
+    if (!games) { reply = "Please fetch live games first.\nTap ⭐ FETCH LIVE GAMES."; keyboard = vvipMainKb; }
+    else {
+      await sendMsg(chatId, "👑 VVIP DEEP ANALYSIS RUNNING...\n🧠 AI researching teams, form, stats.\n⏳ Please wait 30 seconds...", oddsKb);
+      await new Promise(r => setTimeout(r, 25000));
+      const target = text.includes("2 Odds") ? "around 2.0" : text.includes("3 Odds") ? "around 3.0" : text.includes("4 Odds") ? "around 4.0" : text.includes("5 Odds") ? "around 5.0" : text.includes("10+") ? "above 10" : text.includes("Safest Single") ? "single safest pick" : "safest";
+      const prompt = "From these LIVE games (within 48hrs):\n" + games + "\nGenerate SAFEST slip for: " + text + ". Target odds: " + target + ". Format each pick:\n🌍 Country\n🏟️ League\n⏰ Time\n⚽ Match\n🎯 Pick\n💰 Odds\n━━━━━━━━━━\nEnd with total odds.";
+      const aiPick = await askGroq(prompt, "Elite tipster. Use only data given.");
+      const w = parseInt(await KV.get("wins:" + userId) || "0"); await KV.put("wins:" + userId, (w + 1).toString());
+      reply = "👑 VVIP ELITE PICK\n━━━━━━━━━━━━\n" + text + "\n━━━━━━━━━━━━\n\n" + aiPick + "\n\n━━━━━━━━━━━━\nBet responsibly.";
+      keyboard = oddsKb;
+    }
+  }
+  else if (text === "⭐ Game of the Day VVIP" && userIsVvip) {
+    await sendMsg(chatId, "👑 Analysing VVIP Banker of the Day...\n⏳ Wait 30 seconds...", null);
+    await new Promise(r => setTimeout(r, 25000));
+    const games = await KV.get("vvipgames:" + userId);
+    if (!games) { reply = "Fetch live games first."; keyboard = vvipMainKb; }
+    else {
+      const pick = await askGroq("From:\n" + games + "\nPick THE single safest banker. Format with dividers:\n🌍 Country\n🏟️ League\n⏰ Time\n⚽ Match\n🎯 Pick\n📊 Confidence %\n💰 Odds", "Elite tipster.");
+      reply = "👑 VVIP GAME OF THE DAY\n━━━━━━━━━━━━\n" + pick;
+      keyboard = vvipMainKb;
+    }
+  }
+  else if (text === "⭐ Banker VVIP" && userIsVvip) { reply = "Use ⭐ Game of the Day VVIP or fetch live games first."; keyboard = vvipMainKb; }
   else if (text === "◼️ PREDICTION TOOLS") { reply = "PREDICTION TOOLS"; keyboard = toolsKb; }
   else if (text === "💬 AI CHAT") { await KV.put("chatmode:" + userId, "yes", { expirationTtl: 180 }); reply = "AI CHAT ACTIVATED\nChat freely for 3 minutes."; keyboard = chatExitKb; }
   else if (text === "🏆 GAME OF THE DAY") {
     const free = await KV.list({ prefix: "game_free:" });
     if (free.keys.length === 0) reply = "Game of the Day not ready yet. Check back soon 🎯";
     else {
-      await sendMsg(chatId, "🧠 Analysing today's BANKER...\n⏳ Please wait 30 seconds...", null);
+      await sendMsg(chatId, "🧠 Analysing today's BANKER...\n⏳ Wait 30 seconds...", null);
       await new Promise(r => setTimeout(r, 25000));
       const k = free.keys[Math.floor(Math.random() * free.keys.length)];
       const game = await KV.get(k.name);
-      const pick = await askGroq("From this data:\n" + game + "\nPick the SAFEST single bet. Format with dividers:\n━━━━━━━━━━\n🌍 Country\n🏟️ League\n⏰ Time\n⚽ Match\n🎯 Pick\n📊 Confidence %\n💰 Odds\n━━━━━━━━━━", "Professional tipster.");
+      const pick = await askGroq("From:\n" + game + "\nPick THE SAFEST single bet. Format:\n━━━━━━━━━━\n🌍 Country\n🏟️ League\n⏰ Time\n⚽ Match\n🎯 Pick\n📊 Confidence %\n💰 Odds\n━━━━━━━━━━", "Professional tipster.");
       reply = "🏆 GAME OF THE DAY\n━━━━━━━━━━━━\n" + pick;
     }
   }
@@ -257,28 +312,9 @@ async function handleUpdate(request, env) {
   else if (text === "🎁 REFER FRIENDS") reply = "🎁 REFERRAL\n━━━━━━━━━━\nYour ID: " + userId + "\nRefer 3 friends = 1 day FREE VIP!";
   else if (text === "🏅 LEADERBOARD") reply = "🏅 TOP USERS\n━━━━━━━━━━\nClimb the ranks by being active!";
   else if (text === "👤 MY ACCOUNT") { const s = isAdmin ? "Admin 👑" : (userIsVvip ? "VVIP 👑" : (userIsVip ? "VIP 💎" : "Free User")); let v = "Not Active"; if (isAdmin) v = "Lifetime"; else if (userIsVvip) { const e = await KV.get("vvip:" + userId); v = "VVIP " + Math.ceil((parseInt(e) - Date.now()) / 86400000) + " days"; } else if (userIsVip) { const e = await KV.get("vip:" + userId); v = "VIP " + Math.ceil((parseInt(e) - Date.now()) / 86400000) + " days"; } reply = "Your Profile\n━━━━━━━━━━\nName: " + firstName + "\nID: " + userId + "\nStatus: " + s + "\nAccess: " + v; }
-  else if (text === "ℹ️ HELP") reply = await askGroq("Generate a brief friendly help guide for VortexPulse AI bot. Mention: Free Tips, VIP, VVIP, AI Chat, Subscribe. Under 80 words.");
+  else if (text === "ℹ️ HELP") reply = await askGroq("Generate brief friendly help guide for VortexPulse AI. Mention: Free Tips, VIP, VVIP, AI Chat, Subscribe. Under 80 words.");
   else if (text === "▫️ Straight Win" || text === "▫️ Double Chance" || text === "▫️ Over 1.5" || text === "▫️ Under 3.5" || text === "▫️ Draw No Bet" || text === "▫️ BTTS") { await KV.put("pending:" + userId, "free|" + text, { expirationTtl: 600 }); reply = "How would you like your pick for " + text + "?"; keyboard = pickTypeKb; }
   else if (text === "◾ Correct Score" || text === "◾ HT/FT" || text === "◾ Over 2.5 VIP" || text === "◾ Over 3.5 VIP" || text === "◾ Corners VIP" || text === "◾ Cards VIP" || text === "◾ 2 Odds Daily" || text === "◾ 5 Odds Daily" || text === "◾ 10 Odds Rollover" || text === "◾ Banker of Day") { if (userIsVip) { await KV.put("pending:" + userId, "vip|" + text, { expirationTtl: 600 }); reply = "How would you like your pick for " + text + "?"; keyboard = pickTypeKb; } else { reply = "🔒 VIP ONLY\n" + text + " is locked."; keyboard = vipKb; } }
-  else if (text === "⭐ 2 Odds Slip" || text === "⭐ 3 Odds Slip" || text === "⭐ 4 Odds Slip" || text === "⭐ 5 Odds Slip" || text === "⭐ Mega Slip 10+" || text === "⭐ Correct Score VVIP" || text === "⭐ BTTS Slip" || text === "⭐ Over 2.5 Slip" || text === "⭐ Banker VVIP" || text === "⭐ Live Online Pick") {
-    if (!userIsVvip) { reply = "🔒 VVIP ELITE LOCKED\nSubscribe VVIP to unlock."; keyboard = vvipKb; }
-    else {
-      const vvipGames = await KV.list({ prefix: "game_vvip:" });
-      if (vvipGames.keys.length === 0) { reply = "VVIP brain empty. Boss should tap '⭐ FETCH VVIP NOW' to load fresh games."; keyboard = vvipKb; }
-      else {
-        await sendMsg(chatId, "👑 VVIP DEEP ANALYSIS RUNNING...\n🧠 AI researching teams, form, stats.\n⏳ Please wait 30 seconds for elite pick...", vvipKb);
-        await new Promise(r => setTimeout(r, 25000));
-        let allGames = "";
-        for (const k of vvipGames.keys) { const g = await KV.get(k.name); if (g) allGames += g + "\n\n"; }
-        const target = text.includes("2 Odds") ? "around 2.0" : text.includes("3 Odds") ? "around 3.0" : text.includes("4 Odds") ? "around 4.0" : text.includes("5 Odds") ? "around 5.0" : text.includes("10+") ? "above 10" : "safest";
-        const prompt = "From these LIVE games:\n" + allGames + "\nGenerate SAFEST slip for: " + text + ". Target odds: " + target + ". Format each pick:\n🌍 Country\n🏟️ League\n⏰ Time\n⚽ Match\n🎯 Pick\n💰 Odds\n━━━━━━━━━━\nEnd with total odds.";
-        const aiPick = await askGroq(prompt, "Elite tipster. Use only data given.");
-        const w = parseInt(await KV.get("wins:" + userId) || "0"); await KV.put("wins:" + userId, (w + 1).toString());
-        reply = "👑 VVIP ELITE PICK\n━━━━━━━━━━━━\n" + text + "\n━━━━━━━━━━━━\n\n" + aiPick + "\n\n━━━━━━━━━━━━\nBet responsibly.";
-        keyboard = vvipKb;
-      }
-    }
-  }
   else if (text === "▪️ Single Pick" || text === "▪️ Slip (Multiple)") {
     const pending = await KV.get("pending:" + userId);
     if (!pending) { reply = "Choose a market first."; keyboard = isAdmin ? userKbAdmin : userKb; }
@@ -288,7 +324,7 @@ async function handleUpdate(request, env) {
       const gameList = await KV.list({ prefix: "game_" + tier + ":" });
       if (gameList.keys.length === 0) { reply = "No games for " + market + " yet.\nBrain is updating."; keyboard = tier === "free" ? freeKb : vipKb; }
       else {
-        await sendMsg(chatId, "🧠 Analysing safe odds for " + market + "...\n⏳ Deep research in progress. Please wait 30 seconds...", isAdmin ? userKbAdmin : userKb);
+        await sendMsg(chatId, "🧠 Analysing safe odds for " + market + "...\n⏳ Deep research. Please wait 30 seconds...", isAdmin ? userKbAdmin : userKb);
         await new Promise(r => setTimeout(r, 25000));
         let allGames = "";
         for (const k of gameList.keys) { const g = await KV.get(k.name); if (g) allGames += g + "\n\n"; }
@@ -301,7 +337,7 @@ async function handleUpdate(request, env) {
       }
     }
   }
-  else if (text === "◼️ Random Picker" || text === "◼️ Stats Insight" || text === "◼️ AI Prediction" || text === "◼️ League Picker" || text === "◼️ Country Games" || text === "◼️ Live Matches") { if (userIsVip) reply = "VIP ACCESS\nRunning " + text + "...\nFeature coming soon."; else reply = "🔒 VIP TOOL LOCKED"; keyboard = toolsKb; }
+  else if (text === "◼️ Random Picker" || text === "◼️ Stats Insight" || text === "◼️ AI Prediction" || text === "◼️ League Picker" || text === "◼️ Country Games" || text === "◼️ Live Matches") { if (userIsVip) reply = "VIP ACCESS\nRunning " + text + "...\nComing soon."; else reply = "🔒 VIP TOOL LOCKED"; keyboard = toolsKb; }
   else if (text === "◀️ BACK") { reply = "Back to main menu."; keyboard = isAdmin ? userKbAdmin : userKb; }
   else { reply = "Please use the buttons below."; keyboard = isAdmin ? userKbAdmin : userKb; }
 
