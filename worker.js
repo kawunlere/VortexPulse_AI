@@ -98,12 +98,12 @@ async function dailyTasks(env) {
 async function autoFetchFree(env) {
   const KV = env.VORTEX_KV;
   try {
-    const res = await fetch("https://api.football-data.org/v4/matches", { headers: { "X-Auth-Token": env.FOOTBALL_KEY } });
+    const res = await fetch("https://api.football-data.org/v4/competitions/WC/matches?status=TIMED,SCHEDULED", { headers: { "X-Auth-Token": env.FOOTBALL_KEY } });
     const data = await res.json();
     if (!data.matches) return;
     const now = Date.now();
     const cutoff = now + (48 * 3600000);
-    const upcoming = data.matches.filter(m => { const t = new Date(m.utcDate).getTime(); return t > now && t < cutoff && m.status === "SCHEDULED"; }).slice(0, 15);
+    const upcoming = data.matches.filter(m => { const t = new Date(m.utcDate).getTime(); return t > now && t < cutoff && (m.status === "SCHEDULED" || m.status === "TIMED"); }).slice(0, 15);
     if (upcoming.length === 0) return;
     let games = "";
     for (const m of upcoming) {
